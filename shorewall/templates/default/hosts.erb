@@ -1,0 +1,20 @@
+<%
+elements=[
+  [:zone, 8],
+  [:hosts, 40],
+  [:options, 0]
+]
+%>
+#
+# Shorewall version 4 - Hosts file
+#
+# For information about entries in this file, type "man shorewall-hosts"
+#
+# The manpage is also online at
+# http://www.shorewall.net/manpages/shorewall-hosts.html
+#
+###############################################################################
+#ZONE   HOST(S)                                 OPTIONS
+<%= shorewall_format_file(elements, node[:shorewall][:hosts]) %>
+#LAST LINE -- ADD YOUR ENTRIES BEFORE THIS LINE -- DO NOT REMOVE
+

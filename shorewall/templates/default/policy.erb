@@ -1,0 +1,23 @@
+<%
+elements=[
+  [:source, 16],
+  [:dest, 16],
+  [:policy, 16],
+  [:log_level, 16],
+  [:limit, 0],
+]
+%>
+#
+# Shorewall version 4 - Policy File
+#
+# For information about entries in this file, type "man shorewall-policy"
+#
+# The manpage is also online at
+# http://www.shorewall.net/manpages/shorewall-policy.html
+#
+###############################################################################
+#SOURCE         DEST            POLICY          LOG             LIMIT:BURST
+#                                               LEVEL
+<%= shorewall_format_file(elements, node[:shorewall][:policy]) %>
+#LAST LINE -- DO NOT REMOVE
+

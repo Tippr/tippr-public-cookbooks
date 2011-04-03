@@ -1,0 +1,22 @@
+<%
+elements=[
+  [:zone, 8],
+  [:type, 16],
+  [:options, 16],
+  [:in_options, 24],
+  [:out_options, 0],
+]
+%>
+#
+# Shorewall version 4 - Zones File
+#
+# For information about this file, type "man shorewall-zones"
+#
+# The manpage is also online at
+# http://www.shorewall.net/manpages/shorewall-zones.html
+#
+###############################################################################
+#ZONE   TYPE            OPTIONS         IN                      OUT
+#                                       OPTIONS                 OPTIONS
+<%= shorewall_format_file(elements, node[:shorewall][:zones]) %>
+#LAST LINE - ADD YOUR ENTRIES ABOVE THIS ONE - DO NOT REMOVE
