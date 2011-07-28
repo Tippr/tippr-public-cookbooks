@@ -1,0 +1,151 @@
+#!/bin/bash
+#
+# Usage: pip-upgrade-as-needed [-nv] <new_requirements.txt
+#
+# Options
+#   -v verbose display (shows comparisons)
+#   -n non-destructive run that displays what would have been installed
+#
+# Exits 0 if no actions needed, 1 if something had to be done
+
+export LC_ALL=C
+
+scm_syntax_re='^-e[[:space:]]+([^[:space:]@]*)(@([^#]+))?#egg=([^-]+)(-(.*))?$'
+search_url_re='^-f[[:space:]]+([^[:space:]])[[:space:]]+(.*)$'
+egg_re='^.*#egg=([^-]+)(-(.*))?$'
+
+function normalize_to_tsv() {
+    # convert pip freeze (or requirements.txt) to:
+    # EGG_NAME EGG_VERSION SCM_URL SCM_VERSION ORIG_LINE
+    while read; do
+        unset egg_name egg_version scm_url scm_version done
+        orig_line=$REPLY
+        if [[ $REPLY = '#'* ]]; then
+            continue
+        fi
+        if [[ $REPLY =~ $search_url_re ]] ; then
+            # given as a specific version with a search URL beforehand; URL should be discarded
+            REPLY=${BASH_REMATCH[2]}
+        fi
+        if [[ $REPLY =~ $scm_syntax_re ]] ; then
+            egg_name="${BASH_REMATCH[4]}"
+            egg_name="${egg_name//_/-}"
+            egg_version="${BASH_REMATCH[6]}"
+            scm_url="${BASH_REMATCH[1]}"
+            scm_version="${BASH_REMATCH[3]}"
+            done=1
+        fi
+        if [[ ! $done ]] && [[ $REPLY =~ $egg_re ]] ; then
+            egg_name="${BASH_REMATCH[1]}"
+            egg_name="${egg_name//_/-}"
+            egg_version="${BASH_REMATCH[3]}"
+            done=1
+        fi
+
+        if [[ ! $done ]] && [[ $REPLY = *[\<\>=]=* ]] ; then
+            egg_name="${REPLY%[\<\>=]=*}"
+            egg_name="${egg_name//_/-}"
+            egg_version="${REPLY#*[\<\>=]=}"
+            done=1
+        fi
+
+        if [[ ! $egg_name ]] ; then
+            egg_name="$REPLY"
+        fi
+
+        printf '%s\t' "${egg_name}" "${egg_version}" "${scm_url}" "${scm_version}" "${orig_line}"
+        printf '\n'
+    done
+}
+
+function read_tdf_line() {
+    # similar to read builtin, but without the built-in behavior of joining whitespace fields
+    # http://stackoverflow.com/questions/4622355/read-in-bash-on-tab-delimited-file-without-empty-fields-collapsing
+    local default_ifs=$' \t\n'
+    local n line element at_end old_ifs
+    old_ifs="${IFS:-${default_ifs}}"
+    IFS=$'\n'
+
+    if ! read -r line ; then
+        return 1
+    fi
+    at_end=0
+    while read -r element; do
+        #printf "%s=%q\n" "$1" "$element" >&2
+        if (( $# > 1 )); then
+            printf -v "$1" '%s' "$element"
+            shift
+        else
+            if (( at_end )) ; then
+                printf -v "$1" '%s\t%s' "${!1}" "$element"
+            else
+                printf -v "$1" '%s' "$element"
+                at_end=1
+            fi
+        fi
+    done < <(tr '\t' '\n' <<<"$line")
+    if ! (( at_end )) ; then
+        while (( $# )) ; do
+            printf -v "$1" '%s' ''
+            shift
+        done
+    fi
+    IFS="$old_ifs"
+}
+
+function upgrade_as_needed() {
+    # read in the left-joined output of requirements.txt and pip freeze, and emit 
+    IFS=$'\t'
+    pip_install_needed=0
+    while read_tdf_line name \
+            req_egg_version req_scm_url req_scm_version req_orig_line _\
+            cur_egg_version cur_scm_url cur_scm_version cur_orig_line _; do
+        pip_install_package=
+
+        (( $verbose )) && echo "$name - req:${req_egg_version:+ egg=$req_egg_version}${req_scm_version:+ v$req_scm_version}  current:${cur_egg_version:+ egg=$cur_egg_version}${cur_scm_version:+ v$cur_scm_version}"
+
+        # mismatched SCM version
+        [[ $req_scm_version && $cur_scm_version && $cur_scm_version != "$req_scm_version"* ]] && pip_install_package="scm"
+
+        # mismatched egg version
+        [[ $req_egg_version && "$req_egg_version" != "$cur_egg_version" ]] && pip_install_package="egg"
+
+        # uninstalled
+        [[ ! $cur_egg_version && ! $cur_scm_version ]] && pip_install_package="install"
+
+        if [[ $pip_install_package ]]; then
+            pip_install_needed=1
+            set -f # avoid glob expansion
+            export PIP_NO_INPUT=1 PIP_INPUT_scm_switch='*(s)witch*' PIP_ACTION_scm_switch=w
+            unset IFS
+            (( $verbose )) && echo "-- Installing $name, due to new $pip_install_package"
+
+            (( $commit )) || echo "pip install $req_orig_line"
+            (( $commit )) && pip install $req_orig_line
+        fi
+    done
+    return $pip_install_needed
+}
+
+function get_collated_data() {
+    join -a 1 -j 1 -t $'\t' \
+        <(normalize_to_tsv | sort) \
+        <(pip freeze | normalize_to_tsv | sort)
+}
+
+commit=1
+verbose=
+while getopts "nv" opt; do
+    case $opt in
+        n)
+            commit=
+            ;;
+        v)
+            verbose=1
+            ;;
+    esac
+done
+
+upgrade_as_needed < <(get_collated_data)
+
+# vim: ai et sw=4 sts=4 ts=4
